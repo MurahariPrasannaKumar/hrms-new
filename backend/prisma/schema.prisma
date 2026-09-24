@@ -234,6 +234,7 @@ model User {
   notifications      Notification[]
   leaveRequests      LeaveRequest[] @relation("LeaveApplicant")
   usageDays          UsageDay[]
+  uploadedResources  LearningResource[] @relation("ResourceUploader")
   reviewedLeaves     LeaveRequest[] @relation("LeaveReviewer")
   auditLogs          AuditLog[]
   passwordResets     PasswordResetToken[]
@@ -368,6 +369,7 @@ model Class {
   students     Student[]
   teachers     TeacherClass[]
   assignments  Assignment[]
+  resources    LearningResource[]
   diaryEntries DiaryEntry[]
   exams        Exam[]
 
@@ -707,11 +709,17 @@ model LearningResource {
   area        String       @default("smart-class") // smart-class | pedagogy | cmds
   fileId      String?
   url         String?
+  /** Pedagogy videos: the class they are for (null = whole school). */
+  classId     String?
+  uploadedById String?
   createdAt   DateTime     @default(now())
   school      School?      @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  class       Class?       @relation(fields: [classId], references: [id], onDelete: SetNull)
+  uploadedBy  User?        @relation("ResourceUploader", fields: [uploadedById], references: [id], onDelete: SetNull)
 
   @@index([schoolId])
   @@index([area])
+  @@index([classId])
 }
 
 // ───────────── Files ─────────────

@@ -6,6 +6,8 @@ import { ApiError } from '../../utils/ApiError';
 import { getStorage } from './storage.provider';
 
 export const MAX_FILE_SIZE = 10 * 1024 * 1024;
+/** Lesson videos may be larger than other files. */
+export const MAX_VIDEO_SIZE = 50 * 1024 * 1024;
 export const ALLOWED_MIME = new Set([
   'image/png', 'image/jpeg', 'image/webp', 'image/gif',
   'application/pdf',

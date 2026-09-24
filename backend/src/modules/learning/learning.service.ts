@@ -2,6 +2,9 @@ import type { Prisma } from '@prisma/client';
 import type { AuthUser } from '../../types/express';
 import { ApiError } from '../../utils/ApiError';
 import { pageArgs, pageMeta, type PaginationQuery } from '../../utils/pagination';
+import { prisma } from '../../config/database';
+import { getMemberScope, getTeacherContext } from '../../utils/actor';
+import { filesService } from '../files/files.service';
 import { learningRepository as repo } from './learning.repository';
 
 const isSuper = (u: AuthUser) => u.role === 'SUPER_ADMIN';
@@ -11,6 +14,11 @@ const canManage = (u: AuthUser) => u.permissions.includes('learning.manage');
 const visibleSchool = (u: AuthUser, requested?: string): { OR: { schoolId: string | null }[] } | Record<string, never> => {
   if (isSuper(u)) return requested ? { OR: [{ schoolId: requested }, { schoolId: null }] } : {};
   return { OR: [{ schoolId: u.schoolId }, { schoolId: null }] };
+};
+
+/** Teachers manage only what they posted; school and platform admins manage everything in their scope. */
+const assertOwnOrAdmin = (u: AuthUser, uploadedById: string | null) => {
+  if (u.role === 'TEACHER' && uploadedById !== u.id) throw ApiError.forbidden('You can only change resources you posted');
 };
 
 const assertVisible = (u: AuthUser, schoolId: string | null) => {
@@ -169,9 +177,15 @@ export const learningService = {
   },
 
   // ── resources ──
-  async listResources(u: AuthUser, q: PaginationQuery & { area?: string; category?: string; type?: string; schoolId?: string }) {
+  async listResources(u: AuthUser, q: PaginationQuery & { area?: string; category?: string; type?: string; schoolId?: string; classId?: string }) {
+    // Students only see resources for their own class (or ones meant for the whole school).
+    const scope = u.role === 'STUDENT' ? await getMemberScope(u) : null;
     const where: Prisma.LearningResourceWhereInput = {
-      ...visibleSchool(u, q.schoolId),
+      AND: [
+        visibleSchool(u, q.schoolId),
+        ...(scope ? [{ OR: [{ classId: null }, { classId: { in: scope.classIds } }] }] : []),
+        ...(q.classId ? [{ classId: q.classId }] : []),
+      ],
       ...(q.area ? { area: q.area } : {}),
       ...(q.category ? { category: q.category } : {}),
       ...(q.type ? { type: q.type as Prisma.LearningResourceWhereInput['type'] } : {}),
@@ -191,13 +205,24 @@ export const learningService = {
   async createResource(u: AuthUser, input: Prisma.LearningResourceUncheckedCreateInput & { global?: boolean }) {
     const { global, ...rest } = input;
     const schoolId = writeTarget(u, { schoolId: rest.schoolId ?? undefined, global });
-    return repo.createResource({ ...rest, schoolId });
+    if (rest.classId) {
+      if (!schoolId || !(await prisma.class.findFirst({ where: { id: rest.classId, schoolId }, select: { id: true } }))) {
+        throw ApiError.badRequest('Class not found in this school');
+      }
+    }
+    if (u.role === 'TEACHER' && rest.area === 'pedagogy') {
+      if (!rest.classId) throw ApiError.badRequest('Choose the class this video is for');
+      const ctx = await getTeacherContext(u.id);
+      if (!ctx?.classIds.includes(rest.classId)) throw ApiError.forbidden('You can only post to classes you teach. Choose your classes under My profile.');
+    }
+    return repo.createResource({ ...rest, schoolId, uploadedById: u.id });
   },
 
   async updateResource(u: AuthUser, id: string, data: Prisma.LearningResourceUncheckedUpdateInput) {
     const r = await repo.findResource(id);
     if (!r) throw ApiError.notFound('Resource not found');
     assertWritable(u, r.schoolId);
+    assertOwnOrAdmin(u, r.uploadedById);
     return repo.updateResource(id, data);
   },
 
@@ -205,7 +230,10 @@ export const learningService = {
     const r = await repo.findResource(id);
     if (!r) throw ApiError.notFound('Resource not found');
     assertWritable(u, r.schoolId);
+    assertOwnOrAdmin(u, r.uploadedById);
     await repo.deleteResource(id);
+    // Free the stored video too (best effort; the resource is already gone).
+    if (r.fileId) await filesService.remove(u, r.fileId).catch(() => undefined);
     return r;
   },
 

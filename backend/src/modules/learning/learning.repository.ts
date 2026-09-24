@@ -8,6 +8,11 @@ const courseDetailInclude = {
   },
 } satisfies Prisma.CourseInclude;
 
+const resourceInclude = {
+  class: { select: { id: true, name: true } },
+  uploadedBy: { select: { id: true, firstName: true, lastName: true } },
+} satisfies Prisma.LearningResourceInclude;
+
 export const learningRepository = {
   listCourses: (where: Prisma.CourseWhereInput, skip: number, take: number) =>
     prisma.$transaction([
@@ -63,10 +68,10 @@ export const learningRepository = {
 
   listResources: (where: Prisma.LearningResourceWhereInput, skip: number, take: number) =>
     prisma.$transaction([
-      prisma.learningResource.findMany({ where, skip, take, orderBy: { createdAt: 'desc' } }),
+      prisma.learningResource.findMany({ where, skip, take, orderBy: { createdAt: 'desc' }, include: resourceInclude }),
       prisma.learningResource.count({ where }),
     ]),
-  findResource: (id: string) => prisma.learningResource.findUnique({ where: { id } }),
+  findResource: (id: string) => prisma.learningResource.findUnique({ where: { id }, include: resourceInclude }),
   createResource: (data: Prisma.LearningResourceUncheckedCreateInput) => prisma.learningResource.create({ data }),
   updateResource: (id: string, data: Prisma.LearningResourceUncheckedUpdateInput) =>
     prisma.learningResource.update({ where: { id }, data }),

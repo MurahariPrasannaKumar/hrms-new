@@ -41,9 +41,11 @@ export interface NoticeInput {
 export interface ResourceRow {
   id: string; title: string; description: string | null; type: ResourceType; category: string | null; area: ResourceArea;
   fileId: string | null; url: string | null; createdAt: string;
+  classId?: string | null; class?: { id: string; name: string } | null;
+  uploadedById?: string | null; uploadedBy?: { id: string; firstName: string; lastName: string } | null;
 }
 export interface ResourceInput {
-  title: string; description?: string; type: ResourceType; category?: string; area: ResourceArea; fileId?: string; url?: string;
+  title: string; description?: string; type: ResourceType; category?: string; area: ResourceArea; fileId?: string; url?: string; classId?: string;
 }
 
 export interface CourseRow {

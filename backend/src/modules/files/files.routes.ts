@@ -6,11 +6,11 @@ import { validate } from '../../middlewares/validate';
 import { audit } from '../../utils/audit';
 import { ApiError } from '../../utils/ApiError';
 import { asyncHandler, ok } from '../../utils/http';
-import { ALLOWED_MIME, filesService, MAX_FILE_SIZE } from './files.service';
+import { ALLOWED_MIME, filesService, MAX_FILE_SIZE, MAX_VIDEO_SIZE } from './files.service';
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: MAX_FILE_SIZE, files: 1 },
+  limits: { fileSize: MAX_VIDEO_SIZE, files: 1 },
   fileFilter: (_req, file, cb) =>
     ALLOWED_MIME.has(file.mimetype) ? cb(null, true) : cb(new ApiError(415, 'UNSUPPORTED_MEDIA_TYPE', 'File type is not allowed')),
 });
@@ -19,7 +19,7 @@ const handleUpload = (req: Request, res: Response, next: NextFunction) =>
   upload.single('file')(req, res, (err: unknown) => {
     if (err instanceof multer.MulterError) {
       const tooBig = err.code === 'LIMIT_FILE_SIZE';
-      return next(new ApiError(tooBig ? 413 : 400, tooBig ? 'FILE_TOO_LARGE' : 'UPLOAD_ERROR', tooBig ? 'File exceeds the 10 MB limit' : err.message));
+      return next(new ApiError(tooBig ? 413 : 400, tooBig ? 'FILE_TOO_LARGE' : 'UPLOAD_ERROR', tooBig ? 'File is too large (10 MB for documents, 50 MB for videos)' : err.message));
     }
     next(err);
   });
@@ -31,6 +31,7 @@ filesRouter.use(requireAuth);
 
 filesRouter.post('/', handleUpload, asyncHandler(async (req, res) => {
   if (!req.file) throw ApiError.badRequest('A "file" field is required');
+  if (!req.file.mimetype.startsWith('video/') && req.file.size > MAX_FILE_SIZE) throw new ApiError(413, 'FILE_TOO_LARGE', 'File exceeds the 10 MB limit');
   const file = await filesService.upload(req.user!, req.file);
   await audit(req, { action: 'UPLOAD', resource: 'FILE', resourceId: file.id });
   ok(res, file, 'File uploaded', 201);

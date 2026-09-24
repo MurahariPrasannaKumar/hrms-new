@@ -112,8 +112,10 @@ describe('courses', () => {
 
 describe('resources', () => {
   it('filters by area and lists categories; students cannot write', async () => {
+    // Pedagogy posts by teachers must name a class they teach.
+    const taught = await prisma.teacherClass.findFirstOrThrow({ where: { teacher: { user: { email: 'teacher@schoolone.com' } } } });
     const r = await request(app).post('/api/v1/resources').set(auth(teacher1)).send({
-      title: 'TEST Resource', area: 'pedagogy', category: 'TEST Category', type: 'LESSON_PLAN',
+      title: 'TEST Resource', area: 'pedagogy', category: 'TEST Category', type: 'LESSON_PLAN', classId: taught.classId,
     });
     expect(r.status).toBe(201);
     created.resources.push(r.body.data.id);

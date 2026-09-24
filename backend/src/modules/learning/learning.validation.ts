@@ -54,6 +54,8 @@ export const createResourceSchema = z.object({
   url: z.string().url().max(2000).optional(),
   schoolId: z.string().uuid().optional(),
   global: z.boolean().default(false),
+  /** Class the resource is for. Omit for the whole school (admins only, for pedagogy videos). */
+  classId: z.string().uuid().optional(),
 });
 export const updateResourceSchema = createResourceSchema
   .omit({ schoolId: true, global: true })
@@ -63,5 +65,6 @@ export const listResourcesSchema = paginationSchema.extend({
   category: z.string().optional(),
   type: resourceType.optional(),
   schoolId: z.string().uuid().optional(),
+  classId: z.string().uuid().optional(),
 });
 export const categoriesQuerySchema = z.object({ area: area.optional() });

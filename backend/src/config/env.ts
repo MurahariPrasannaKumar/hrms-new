@@ -20,6 +20,8 @@ const schema = z.object({
   /** Public URL of the web app, used for links in emails. Falls back to the first CORS origin. */
   FRONTEND_URL: z.string().optional(),
   MAIL_FROM: z.string().default('EduSphere <no-reply@edusphere.local>'),
+  /** Use "none" when the frontend and API are on different sites (e.g. vercel.app + onrender.com). Requires HTTPS. */
+  COOKIE_SAMESITE: z.enum(['lax', 'strict', 'none']).default('lax'),
   SEED_DEMO_PASSWORD: z.string().default('password'),
 });
 

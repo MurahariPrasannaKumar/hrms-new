@@ -9,8 +9,9 @@ import { authService, buildProfile } from './auth.service';
 const COOKIE = 'refresh_token';
 const cookieOptions = (): CookieOptions => ({
   httpOnly: true,
-  secure: isProd,
-  sameSite: 'lax',
+  // SameSite=None is only accepted by browsers on Secure cookies.
+  secure: isProd || env.COOKIE_SAMESITE === 'none',
+  sameSite: env.COOKIE_SAMESITE,
   path: '/api/v1/auth',
   maxAge: parseDurationMs(env.JWT_REFRESH_EXPIRES_IN),
 });
