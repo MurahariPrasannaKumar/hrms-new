@@ -8,6 +8,7 @@ import { pageArgs, pageMeta, type PaginationQuery } from '../../utils/pagination
 import { deliverToStudents } from '../academics/class-notifier';
 import { notificationService } from '../notifications/notification.service';
 import { prisma } from '../../config/database';
+import { logger } from '../../config/logger';
 import { diaryRepository as repo } from './diary.repository';
 
 /** Resolves the teacher a new diary entry/assignment belongs to and checks class access. */
@@ -133,6 +134,87 @@ const assertAssignmentVisible = async (req: Request, classId: string, teacherId:
   }
 };
 
+/** Tells the assignment's teacher (platform notification + email) that a student handed in work. Never blocks the student. */
+const notifyTeacherOfSubmission = async (
+  a: { id: string; title: string; dueDate: Date | null; teacherId: string; class: { name: string }; subject: { name: string } },
+  studentId: string,
+  resubmitted: boolean,
+  hasFile: boolean,
+) => {
+  try {
+    const [teacher, student] = await Promise.all([
+      prisma.teacher.findUnique({ where: { id: a.teacherId }, select: { userId: true } }),
+      prisma.student.findUnique({ where: { id: studentId }, select: { firstName: true, lastName: true, admissionNumber: true } }),
+    ]);
+    if (!teacher || !student) return;
+    const who = `${student.firstName} ${student.lastName}`;
+    const late = !!a.dueDate && new Date() > new Date(a.dueDate.getTime() + 86_400_000);
+    await notificationService.notify(
+      [teacher.userId],
+      {
+        type: 'ASSIGNMENT', link: '/assignments',
+        title: `${resubmitted ? 'Resubmitted' : 'Submitted'}: ${a.title} (${who})`,
+        message: `${who} ${resubmitted ? 'resubmitted' : 'submitted'} "${a.title}" for ${a.class.name}${late ? ' after the due date' : ''}. Open Assignments to review it and enter marks.`,
+        email: {
+          category: 'Assignments',
+          details: [
+            { label: 'Student', value: `${who} (${student.admissionNumber})` },
+            { label: 'Assignment', value: a.title },
+            { label: 'Class', value: a.class.name },
+            { label: 'Subject', value: a.subject.name },
+            { label: 'Due date', value: a.dueDate ? a.dueDate.toISOString().slice(0, 10) : 'No due date' },
+            { label: 'Status', value: `${resubmitted ? 'Resubmitted' : 'Submitted'}${late ? ' (late)' : ''}${hasFile ? ', with an attachment' : ''}` },
+          ],
+          action: { label: 'Review submission', path: '{area}/assignments' },
+        },
+      },
+      ['IN_APP', 'EMAIL'],
+    );
+  } catch (err) {
+    logger.error({ err, assignmentId: a.id }, 'Submission notification failed');
+  }
+};
+
+/** Tells the student (and their parent, in the platform) that an assignment was marked. */
+const notifyStudentOfMarks = async (
+  a: { id: string; title: string; class: { name: string }; subject: { name: string }; teacher: { user: { firstName: string; lastName: string } } },
+  studentId: string,
+  marks: number,
+) => {
+  try {
+    const student = await prisma.student.findUnique({ where: { id: studentId }, select: { firstName: true, userId: true, parent: { select: { userId: true } } } });
+    if (!student) return;
+    const by = `${a.teacher.user.firstName} ${a.teacher.user.lastName}`;
+    const title = `Marks received: ${a.title}`;
+    if (student.userId) {
+      await notificationService.notify(
+        [student.userId],
+        {
+          type: 'ASSIGNMENT', link: '/assignments', title,
+          message: `${by} marked your ${a.subject.name} assignment "${a.title}". You scored ${marks}.`,
+          email: {
+            category: 'Assignments',
+            details: [
+              { label: 'Assignment', value: a.title },
+              { label: 'Subject', value: a.subject.name },
+              { label: 'Class', value: a.class.name },
+              { label: 'Your marks', value: String(marks) },
+              { label: 'Marked by', value: by },
+            ],
+            action: { label: 'View my assignments', path: '{area}/assignments' },
+          },
+        },
+        ['IN_APP', 'EMAIL'],
+      );
+    }
+    if (student.parent?.userId) {
+      await notificationService.notify([student.parent.userId], { type: 'ASSIGNMENT', title, message: `${student.firstName} scored ${marks} on "${a.title}" (${a.subject.name}).` });
+    }
+  } catch (err) {
+    logger.error({ err, assignmentId: a.id }, 'Marks notification failed');
+  }
+};
+
 export const assignmentsService = {
   async list(req: Request, q: PaginationQuery & { schoolId?: string; classId?: string; subjectId?: string }) {
     const schoolId = optionalSchoolScope(req, q.schoolId);
@@ -144,6 +226,15 @@ export const assignmentsService = {
     else if (req.user!.role === 'TEACHER') and.push(await ownTeacherFilter(req));
     const { skip, take } = pageArgs(q);
     const [items, total] = await repo.listAssignments({ AND: and }, skip, take);
+    const own = await getOwnStudentIds(req.user!);
+    if (req.user!.role === 'STUDENT' && own?.length) {
+      const mine = await prisma.assignmentSubmission.findMany({
+        where: { studentId: own[0], assignmentId: { in: items.map((i) => i.id) } },
+        select: { assignmentId: true, submittedAt: true, marks: true, content: true, fileId: true },
+      });
+      const byId = new Map(mine.map((m) => [m.assignmentId, m]));
+      return { items: items.map((i) => ({ ...i, mySubmission: byId.get(i.id) ?? null })), meta: pageMeta(q, total) };
+    }
     return { items, meta: pageMeta(q, total) };
   },
 
@@ -224,8 +315,13 @@ ${body.description.slice(0, 500)}` : ''}`;
     const [studentId] = (await getOwnStudentIds(req.user!)) ?? [];
     const scope = await getMemberScope(req.user!);
     if (!studentId || !scope?.classIds.includes(a.classId)) throw ApiError.forbidden('This assignment is not for your class');
+    if (!body.content?.trim() && !body.fileId) throw ApiError.badRequest('Write an answer or attach a file');
     await assertFile(body.fileId, a.schoolId);
-    return repo.upsertSubmission(id, studentId, a.schoolId, body);
+    const existing = await prisma.assignmentSubmission.findUnique({ where: { assignmentId_studentId: { assignmentId: id, studentId } }, select: { id: true } });
+    const submission = await repo.upsertSubmission(id, studentId, a.schoolId, body);
+    await audit(req, { schoolId: a.schoolId, action: existing ? 'RESUBMIT' : 'SUBMIT', resource: 'ASSIGNMENT_SUBMISSION', resourceId: submission.id });
+    void notifyTeacherOfSubmission(a, studentId, !!existing, !!body.fileId);
+    return submission;
   },
 
   async listSubmissions(req: Request, id: string) {
@@ -243,6 +339,7 @@ ${body.description.slice(0, 500)}` : ''}`;
     if (!(await repo.findSubmission(submissionId, id, a.schoolId))) throw ApiError.notFound('Submission not found');
     const s = await repo.gradeSubmission(submissionId, marks);
     await audit(req, { schoolId: a.schoolId, action: 'GRADE', resource: 'ASSIGNMENT_SUBMISSION', resourceId: submissionId, metadata: { marks } });
+    void notifyStudentOfMarks(a, s.studentId, marks);
     return s;
   },
 };

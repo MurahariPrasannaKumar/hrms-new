@@ -2,11 +2,12 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CalendarClock, Eye, Paperclip, Pencil, Plus, Send, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/forms/ConfirmDialog";
 import { FormModal } from "@/components/forms/FormModal";
 import { PageHeader } from "@/components/layout/PageHeader";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -63,26 +64,29 @@ function SubmitDialog({ assignment, onClose }: { assignment: AssignmentRow | nul
   const qc = useQueryClient();
   const [content, setContent] = useState("");
   const [file, setFile] = useState<File | null>(null);
+  const previous = assignment?.mySubmission ?? null;
+  useEffect(() => { setContent(previous?.content ?? ""); setFile(null); }, [assignment?.id, previous?.content]);
   const submit = useMutation({
     mutationFn: async () => {
       const fileId = file ? (await fileService.upload(file)).id : undefined;
       return assignmentService.submit(assignment!.id, { content: content || undefined, fileId });
     },
-    onSuccess: () => { toast.success("Submitted"); setContent(""); setFile(null); onClose(); qc.invalidateQueries({ queryKey: ["assignments"] }); },
+    onSuccess: () => { toast.success(previous ? "Resubmitted. Your teacher has been notified." : "Submitted. Your teacher has been notified."); setFile(null); onClose(); qc.invalidateQueries({ queryKey: ["assignments"] }); qc.invalidateQueries({ queryKey: ["dashboard"] }); },
     onError: (e) => toast.error(toApiError(e).message),
   });
   return (
-    <FormModal open={!!assignment} onOpenChange={(o) => !o && onClose()} title={`Submit: ${assignment?.title ?? ""}`}>
-      <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); if (!content && !file) return toast.error("Add an answer or attach a file"); submit.mutate(); }}>
+    <FormModal open={!!assignment} onOpenChange={(o) => !o && onClose()} title={`${previous ? "Resubmit" : "Submit"}: ${assignment?.title ?? ""}`}
+      description="Your teacher is notified as soon as you submit.">
+      <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); if (!content.trim() && !file && !previous?.fileId) return toast.error("Add an answer or attach a file"); submit.mutate(); }}>
         <div className="space-y-1.5">
           <Label htmlFor="sub-content">Your answer</Label>
           <Textarea id="sub-content" rows={5} value={content} onChange={(e) => setContent(e.target.value)} />
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="sub-file">Attachment (optional)</Label>
+          <Label htmlFor="sub-file">{previous?.fileId ? "Replace attachment (optional)" : "Attachment (optional)"}</Label>
           <Input id="sub-file" type="file" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
         </div>
-        <Button type="submit" disabled={submit.isPending}><Send className="size-4" aria-hidden /> {submit.isPending ? "Submitting…" : "Submit"}</Button>
+        <Button type="submit" disabled={submit.isPending}><Send className="size-4" aria-hidden /> {submit.isPending ? "Submitting…" : previous ? "Resubmit" : "Submit"}</Button>
       </form>
     </FormModal>
   );
@@ -159,7 +163,19 @@ export function AssignmentsPage() {
                     {canManage ? (
                       <Button size="sm" variant="outline" onClick={() => setViewing(a)}><Eye className="size-4" aria-hidden /> Submissions ({a._count?.submissions ?? 0})</Button>
                     ) : (
-                      <Button size="sm" onClick={() => setSubmitting(a)}><Send className="size-4" aria-hidden /> Submit</Button>
+                      <div className="flex flex-wrap items-center justify-end gap-2">
+                        {a.mySubmission && (
+                          <>
+                            <Badge variant="secondary" className="bg-sky-50 text-sky-700">Submitted {formatDate(a.mySubmission.submittedAt)}</Badge>
+                            <Badge variant="secondary" className={a.mySubmission.marks != null ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}>
+                              {a.mySubmission.marks != null ? `Marks: ${a.mySubmission.marks}` : "Awaiting marks"}
+                            </Badge>
+                          </>
+                        )}
+                        <Button size="sm" variant={a.mySubmission ? "outline" : "default"} onClick={() => setSubmitting(a)}>
+                          <Send className="size-4" aria-hidden /> {a.mySubmission ? "Resubmit" : "Submit"}
+                        </Button>
+                      </div>
                     )}
                   </div>
                 </CardContent>

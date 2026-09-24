@@ -20,6 +20,8 @@ export interface DiaryInput {
 export interface AssignmentRow {
   id: string; classId: string; subjectId: string; title: string; description: string | null; dueDate: string | null; fileId?: string | null;
   subject?: Named; class?: Named; teacher?: { user: { firstName: string; lastName: string } }; _count?: { submissions: number };
+  /** Present for students: their own hand-in, or null if they have not submitted yet. */
+  mySubmission?: { submittedAt: string; marks: number | null; content: string | null; fileId: string | null } | null;
 }
 export interface AssignmentInput { classId: string; subjectId: string; title: string; description?: string; dueDate?: string; fileId?: string; notify?: boolean }
 export interface SubmissionRow {

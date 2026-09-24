@@ -95,6 +95,7 @@ export const NAV_BY_ROLE: Record<Role, NavItem[]> = {
     item("Dashboard", "/student/dashboard", LayoutDashboard, "indigo", undefined, "dashboard"),
     item("Academics", "/student/academics", BookOpen, "teal", "academics.read", "academics"),
     item("Attendance", "/student/attendance", CalendarCheck, "emerald", "attendance.read", "attendance"),
+    item("Assignments", "/student/assignments", ClipboardList, "violet", "assignments.read"),
     item("Digital Diary", "/student/diary", NotebookPen, "amber", "diary.read", "diary"),
     item("Noticeboard", "/student/notices", Megaphone, "orange", "notices.read", "noticeboard"),
     item("Pedagogy", "/student/pedagogy", Lightbulb, "amber", "learning.read", "pedagogy"),

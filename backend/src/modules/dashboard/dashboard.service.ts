@@ -146,13 +146,15 @@ async function studentSummary(studentId: string, role: string, full: boolean) {
     include: { class: { select: { id: true, name: true } }, section: { select: { id: true, name: true } } },
   });
   const now = new Date();
+  const startOfToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
   const [grouped, perf, assignments, diary, notices, lessons] = await Promise.all([
     prisma.attendanceRecord.groupBy({ by: ['status'], where: { studentId }, _count: { _all: true } }),
     performance({ studentId }),
     student.classId
       ? prisma.assignment.findMany({
-          where: { classId: student.classId, schoolId: student.schoolId, dueDate: { gte: now } },
-          orderBy: { dueDate: 'asc' }, take: 5,
+          // Undated assignments count as open; ones due today stay until the day ends.
+          where: { classId: student.classId, schoolId: student.schoolId, OR: [{ dueDate: null }, { dueDate: { gte: startOfToday } }] },
+          orderBy: [{ dueDate: { sort: 'asc', nulls: 'last' } }, { createdAt: 'desc' }], take: 5,
           select: { id: true, title: true, dueDate: true, subject: { select: { name: true } }, submissions: { where: { studentId }, select: { id: true } } },
         })
       : [],
