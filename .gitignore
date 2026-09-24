@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+
+# Environment files (real secrets never get committed; the .example templates do)
+.env
+.env.*
+!.env.example
+
+# Build output
+dist/
+build/
+out/
+.next/
+*.tsbuildinfo
+
+# Uploaded files and local data
+uploads/
+backend/uploads/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# Test and coverage output
+coverage/
+.nyc_output/
+
+# Local tokens and scratch files
+.tok
+*.tmp
+*.tmp.ts
+.claude/settings.local.json
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+
+# Certificates and keys
+*.pem
+*.key

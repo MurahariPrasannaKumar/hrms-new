@@ -1,0 +1,17 @@
+node_modules/
+dist/
+
+# Environment (keep the template)
+.env
+.env.*
+!.env.example
+
+# Uploaded files (local storage provider)
+uploads/
+
+# Logs, coverage, temp
+*.log
+coverage/
+*.tsbuildinfo
+*.tmp
+*.tmp.ts
